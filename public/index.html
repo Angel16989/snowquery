@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="SnowQuery — A Snowflake-inspired PostgreSQL learning environment">
+    <title>SnowQuery — PostgreSQL Learning Lab</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/theme/material-darker.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>❄️</text></svg>">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Left Nav Bar (icon-based, like Snowflake) -->
+        <nav id="nav-bar">
+            <div class="nav-brand">
+                <div class="brand-icon">❄️</div>
+            </div>
+            <div class="nav-items">
+                <button class="nav-item active" data-view="worksheets" title="Worksheets" id="nav-worksheets">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    <span class="nav-label">Worksheets</span>
+                </button>
+                <button class="nav-item" data-view="data" title="Data" id="nav-data">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                    </svg>
+                    <span class="nav-label">Data</span>
+                </button>
+                <button class="nav-item" data-view="history" title="History" id="nav-history">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <span class="nav-label">History</span>
+                </button>
+                <button class="nav-item" data-view="samples" title="Sample Queries" id="nav-samples">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+                    </svg>
+                    <span class="nav-label">Learn</span>
+                </button>
+            </div>
+            <div class="nav-bottom">
+                <button class="nav-item" data-view="settings" title="Settings" id="nav-settings">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                    <span class="nav-label">Settings</span>
+                </button>
+                <div class="connection-indicator" id="connection-indicator" title="Connection status">
+                    <div class="connection-dot"></div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Sidebar Panel -->
+        <aside id="sidebar" class="sidebar">
+            <!-- Object Explorer (shown in data view) -->
+            <div id="sidebar-data" class="sidebar-panel" style="display: none;">
+                <div class="sidebar-header">
+                    <h2>Data Explorer</h2>
+                    <button class="icon-btn" id="refresh-explorer" title="Refresh">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                    </button>
+                </div>
+                <div class="sidebar-search">
+                    <input type="text" id="explorer-search" placeholder="Search objects..." autocomplete="off">
+                </div>
+                <div id="object-tree" class="object-tree">
+                    <div class="tree-loading">Loading databases...</div>
+                </div>
+            </div>
+
+            <!-- History Panel -->
+            <div id="sidebar-history" class="sidebar-panel" style="display: none;">
+                <div class="sidebar-header">
+                    <h2>Query History</h2>
+                    <button class="icon-btn" id="clear-history" title="Clear history">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+                <div id="history-list" class="history-list">
+                    <div class="empty-state">No queries yet</div>
+                </div>
+            </div>
+
+            <!-- Samples Panel -->
+            <div id="sidebar-samples" class="sidebar-panel" style="display: none;">
+                <div class="sidebar-header">
+                    <h2>Sample Queries</h2>
+                </div>
+                <div id="samples-list" class="samples-list">
+                    <div class="tree-loading">Loading samples...</div>
+                </div>
+            </div>
+
+            <!-- Settings Panel -->
+            <div id="sidebar-settings" class="sidebar-panel" style="display: none;">
+                <div class="sidebar-header">
+                    <h2>Connection Settings</h2>
+                </div>
+                <div class="settings-form">
+                    <div class="form-group">
+                        <label for="setting-host">Host</label>
+                        <input type="text" id="setting-host" value="localhost">
+                    </div>
+                    <div class="form-group">
+                        <label for="setting-port">Port</label>
+                        <input type="number" id="setting-port" value="5432">
+                    </div>
+                    <div class="form-group">
+                        <label for="setting-user">User</label>
+                        <input type="text" id="setting-user" value="postgres">
+                    </div>
+                    <div class="form-group">
+                        <label for="setting-password">Password</label>
+                        <input type="password" id="setting-password" value="postgres123">
+                    </div>
+                    <div class="form-group">
+                        <label for="setting-database">Default Database</label>
+                        <input type="text" id="setting-database" value="learn_sql">
+                    </div>
+                    <button class="btn btn-primary" id="save-settings">Test & Save Connection</button>
+                    <div id="settings-status" class="settings-status"></div>
+                    <div class="setup-card">
+                        <div>
+                            <strong>Learning Database</strong>
+                            <p>Create or refresh <code>learn_sql</code> with the sample tables used by the Learn tab.</p>
+                        </div>
+                        <button class="btn btn-secondary" id="setup-database">Set Up Sample Data</button>
+                        <div id="setup-status" class="settings-status"></div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main id="main-content">
+            <!-- Worksheet Tab Bar -->
+            <div class="worksheet-bar">
+                <div class="worksheet-tabs" id="worksheet-tabs">
+                    <!-- Tabs populated by JS -->
+                </div>
+                <button class="add-tab-btn" id="add-worksheet" title="New Worksheet">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+                <div class="worksheet-actions">
+                    <div class="context-selector">
+                        <select id="db-selector" title="Database context">
+                            <option value="learn_sql">learn_sql</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Editor + Results Split -->
+            <div class="editor-results-split" id="editor-results-split">
+                <!-- Editor Panel -->
+                <div class="editor-panel" id="editor-panel">
+                    <div class="editor-toolbar">
+                        <button class="btn btn-run" id="run-query" title="Run Query (Ctrl+Enter)">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                            <span>Run</span>
+                        </button>
+                        <span class="toolbar-shortcut">Ctrl+Enter</span>
+                        <div class="toolbar-spacer"></div>
+                        <button class="btn btn-secondary btn-sm" id="format-query" title="Format SQL">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="21" y1="10" x2="3" y2="10"></line><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="14" x2="3" y2="14"></line><line x1="21" y1="18" x2="3" y2="18"></line></svg>
+                            Format
+                        </button>
+                        <button class="btn btn-secondary btn-sm" id="clear-editor" title="Clear editor">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            Clear
+                        </button>
+                    </div>
+                    <div id="sql-editor" class="sql-editor"></div>
+                </div>
+
+                <!-- Resize Handle -->
+                <div class="resize-handle" id="resize-handle">
+                    <div class="resize-grip"></div>
+                </div>
+
+                <!-- Results Panel -->
+                <div class="results-panel" id="results-panel">
+                    <div class="results-header" id="results-header">
+                        <div class="results-tabs">
+                            <button class="results-tab active" data-tab="results" id="tab-results">Results</button>
+                            <button class="results-tab" data-tab="messages" id="tab-messages">Messages</button>
+                        </div>
+                        <div class="results-info" id="results-info"></div>
+                        <div class="results-actions">
+                            <button class="btn btn-secondary btn-sm" id="export-csv" title="Export to CSV" style="display:none;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                CSV
+                            </button>
+                        </div>
+                    </div>
+                    <div class="results-content" id="results-content">
+                        <div class="results-welcome" id="results-welcome">
+                            <div class="welcome-icon">❄️</div>
+                            <h2>Welcome to SnowQuery</h2>
+                            <p>Your local PostgreSQL learning environment</p>
+                            <div class="welcome-tips">
+                                <div class="tip">
+                                    <span class="tip-key">Ctrl + Enter</span>
+                                    <span class="tip-desc">Run query</span>
+                                </div>
+                                <div class="tip">
+                                    <span class="tip-key">Ctrl + S</span>
+                                    <span class="tip-desc">Save worksheet</span>
+                                </div>
+                                <div class="tip">
+                                    <span class="tip-key">Click table</span>
+                                    <span class="tip-desc">Insert name into editor</span>
+                                </div>
+                            </div>
+                            <p class="welcome-hint">Open the <strong>Learn</strong> tab on the left for sample queries to get started!</p>
+                        </div>
+                        <div id="results-table-container" class="results-table-container" style="display:none;"></div>
+                        <div id="results-messages" class="results-messages" style="display:none;"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/sql/sql.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/sql-hint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/closebrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/selection/active-line.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/comment/comment.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
