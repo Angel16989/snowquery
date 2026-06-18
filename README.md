@@ -21,6 +21,7 @@ http://localhost:3000
 The app reads PostgreSQL connection settings from `.env` first, then falls back to safe local defaults:
 
 ```text
+PORT=3000
 PGHOST=localhost
 PGPORT=5432
 PGUSER=postgres
@@ -38,6 +39,7 @@ $env:PGPORT="5432"
 $env:PGUSER="postgres"
 $env:PGPASSWORD="your_password_here"
 $env:PGDATABASE="postgres"
+$env:PORT="3000"
 npm start
 ```
 

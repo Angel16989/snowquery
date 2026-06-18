@@ -30,7 +30,7 @@ function loadDotEnv() {
 loadDotEnv();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 
 const DEFAULT_DB_CONFIG = {
     user: process.env.PGUSER || '',
