@@ -18,6 +18,11 @@ let isResizing = false;
 // ═══════════════════════════════════════════
 
 document.addEventListener('DOMContentLoaded', () => {
+    bootstrapApp();
+});
+
+async function bootstrapApp() {
+    await loadConnectionDefaults();
     initEditor();
     initWorksheets();
     initNavigation();
@@ -30,7 +35,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Show the worksheets view with sidebar collapsed by default
     switchView('worksheets');
-});
+}
+
+async function loadConnectionDefaults() {
+    try {
+        const res = await fetch(`${API_BASE}/api/config`);
+        if (!res.ok) return;
+        const config = await res.json();
+        const hostEl = document.getElementById('setting-host');
+        const portEl = document.getElementById('setting-port');
+        const userEl = document.getElementById('setting-user');
+        const dbEl = document.getElementById('setting-database');
+
+        if (hostEl && !hostEl.value) hostEl.value = config.host || '';
+        if (portEl && !portEl.value) portEl.value = config.port || '';
+        if (userEl && !userEl.value) userEl.value = config.user || '';
+        if (dbEl && !dbEl.value) dbEl.value = config.database || '';
+    } catch (e) {
+        // Use local placeholders if the config endpoint is unavailable.
+    }
+}
 
 // ── CodeMirror Editor ──
 function initEditor() {

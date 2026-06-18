@@ -18,15 +18,17 @@ http://localhost:3000
 
 ## Database Setup
 
-The app expects PostgreSQL on `localhost:5432` by default with:
+The app reads PostgreSQL connection settings from `.env` first, then falls back to safe local defaults:
 
 ```text
-user: postgres
-password: postgres123
-database: learn_sql
+PGHOST=localhost
+PGPORT=5432
+PGUSER=postgres
+PGPASSWORD=your_password_here
+PGDATABASE=postgres
 ```
 
-Open Settings in the app and click `Set Up Sample Data`. The server will create or refresh the `learn_sql` database using `seed.sql`.
+Create a `.env` file next to `server.js`, then open Settings in the app and click `Set Up Sample Data`. The server will create or refresh the `learn_sql` database using `seed.sql`.
 
 You can change the connection in Settings before setup. Environment variables also work:
 
@@ -34,8 +36,8 @@ You can change the connection in Settings before setup. Environment variables al
 $env:PGHOST="localhost"
 $env:PGPORT="5432"
 $env:PGUSER="postgres"
-$env:PGPASSWORD="Angel16989@@"
-$env:PGDATABASE="learn_sql"
+$env:PGPASSWORD="your_password_here"
+$env:PGDATABASE="postgres"
 npm start
 ```
 

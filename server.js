@@ -4,12 +4,37 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 
+function loadDotEnv() {
+    const envPath = path.join(__dirname, '.env');
+    if (!fs.existsSync(envPath)) return;
+
+    const content = fs.readFileSync(envPath, 'utf-8');
+    for (const line of content.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+
+        const equalsIndex = trimmed.indexOf('=');
+        if (equalsIndex === -1) continue;
+
+        const key = trimmed.slice(0, equalsIndex).trim();
+        let value = trimmed.slice(equalsIndex + 1).trim();
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.slice(1, -1);
+        }
+        if (key && process.env[key] === undefined) {
+            process.env[key] = value;
+        }
+    }
+}
+
+loadDotEnv();
+
 const app = express();
 const PORT = 3000;
 
 const DEFAULT_DB_CONFIG = {
-    user: process.env.PGUSER || 'postgres',
-    password: process.env.PGPASSWORD || 'Angel16989@@',
+    user: process.env.PGUSER || '',
+    password: process.env.PGPASSWORD || '',
     host: process.env.PGHOST || 'localhost',
     port: Number(process.env.PGPORT || 5432),
     database: process.env.PGDATABASE || 'postgres',
@@ -26,12 +51,22 @@ function dbConfig(overrides = {}) {
 }
 
 function createPool(overrides = {}, poolOptions = {}) {
+    const config = dbConfig(overrides);
     return new Pool({
-        ...dbConfig(overrides),
+        ...config,
         max: poolOptions.max || 10,
         idleTimeoutMillis: poolOptions.idleTimeoutMillis || 30000,
         connectionTimeoutMillis: poolOptions.connectionTimeoutMillis || 5000,
     });
+}
+
+function getPublicDbConfig() {
+    return {
+        host: currentDbConfig.host || '',
+        port: Number(currentDbConfig.port || DEFAULT_DB_CONFIG.port),
+        user: currentDbConfig.user || '',
+        database: currentDbConfig.database || '',
+    };
 }
 
 function quoteIdentifier(value) {
@@ -53,6 +88,10 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // PostgreSQL connection pool — default config
 let pool = createPool();
+
+app.get('/api/config', (req, res) => {
+    res.json(getPublicDbConfig());
+});
 
 // Query history (in-memory, persisted to file)
 const HISTORY_FILE = path.join(__dirname, '.query_history.json');
@@ -571,7 +610,7 @@ app.post('/api/settings', async (req, res) => {
             host: host || DEFAULT_DB_CONFIG.host,
             port: Number(port || DEFAULT_DB_CONFIG.port),
             user: user || DEFAULT_DB_CONFIG.user,
-            password: password || DEFAULT_DB_CONFIG.password,
+            password: typeof password === 'string' ? password : DEFAULT_DB_CONFIG.password,
             database: database || DEFAULT_DB_CONFIG.database,
         };
 
