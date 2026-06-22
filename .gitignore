@@ -1,3 +1,5 @@
 node_modules/
 .env
 .query_history.json
+__pycache__/
+*.pyc

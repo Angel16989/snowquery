@@ -43,6 +43,30 @@ $env:PORT="3000"
 npm start
 ```
 
+## Load the Global Airports Dataset
+
+Install the Python importer dependencies:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+Make sure `.env` has your PostgreSQL connection settings, then run:
+
+```powershell
+python scripts/import_airports.py
+```
+
+This downloads the latest Kaggle dataset from `fareselgohary003/global-airports-dataset`,
+creates an `airports` database if needed, and loads `public.airports`.
+
+To use a different database name:
+
+```powershell
+$env:AIRPORTS_DATABASE="learn_sql"
+python scripts/import_airports.py
+```
+
 ## Checks
 
 ```powershell
