@@ -285,6 +285,11 @@ html, body {
     letter-spacing: 0.01em;
 }
 
+.sidebar-header-actions {
+    display: flex;
+    gap: 2px;
+}
+
 .sidebar-search {
     padding: 8px 12px;
     border-bottom: 1px solid var(--border-subtle);

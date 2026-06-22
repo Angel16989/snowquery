@@ -482,6 +482,31 @@ async function loadDatabases() {
     }
 }
 
+async function createDatabase() {
+    const name = prompt('Enter a name for the new database:');
+    if (!name || !name.trim()) return;
+
+    try {
+        const res = await fetch(`${API_BASE}/api/databases`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.trim() }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+            showToast(`Database "${data.database}" created`, 'success');
+            const tree = document.getElementById('object-tree');
+            tree.innerHTML = '';
+            loadObjectTree();
+            loadDbSelector();
+        } else {
+            showToast(data.error || 'Failed to create database', 'error');
+        }
+    } catch (e) {
+        showToast('Failed to create database: ' + e.message, 'error');
+    }
+}
+
 async function loadDbSelector() {
     try {
         const res = await fetch(`${API_BASE}/api/databases`);
@@ -884,6 +909,9 @@ function initEventListeners() {
             showResultsTab(tab.dataset.tab);
         });
     });
+
+    // Create Database
+    document.getElementById('create-database').addEventListener('click', createDatabase);
 
     // Refresh Object Explorer
     document.getElementById('refresh-explorer').addEventListener('click', () => {

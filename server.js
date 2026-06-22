@@ -212,6 +212,35 @@ app.post('/api/query', async (req, res) => {
     }
 });
 
+// Create a new database
+app.post('/api/databases', async (req, res) => {
+    const { name } = req.body;
+    let adminPool;
+    try {
+        const databaseName = validateDatabaseName(name);
+        adminPool = createPool(
+            { database: 'postgres' },
+            { max: 1, idleTimeoutMillis: 5000, connectionTimeoutMillis: 5000 }
+        );
+
+        const existsResult = await adminPool.query(
+            'SELECT 1 FROM pg_database WHERE datname = $1',
+            [databaseName]
+        );
+        if (existsResult.rowCount > 0) {
+            await adminPool.end().catch(() => {});
+            return res.status(400).json({ error: `Database "${databaseName}" already exists` });
+        }
+
+        await adminPool.query(`CREATE DATABASE ${quoteIdentifier(databaseName)}`);
+        await adminPool.end().catch(() => {});
+        res.json({ status: 'created', database: databaseName });
+    } catch (err) {
+        if (adminPool) await adminPool.end().catch(() => {});
+        res.status(400).json({ error: err.message });
+    }
+});
+
 // List all databases
 app.get('/api/databases', async (req, res) => {
     try {
