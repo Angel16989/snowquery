@@ -54,6 +54,12 @@
                     </svg>
                     <span class="nav-label">Learn</span>
                 </button>
+                <button class="nav-item" data-view="roles" title="Roles" id="nav-roles">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    </svg>
+                    <span class="nav-label">Roles</span>
+                </button>
             </div>
             <div class="nav-bottom">
                 <button class="nav-item" data-view="settings" title="Settings" id="nav-settings">
@@ -76,6 +82,9 @@
                 <div class="sidebar-header">
                     <h2>Data Explorer</h2>
                     <div class="sidebar-header-actions">
+                        <button class="icon-btn" id="import-csv" title="Import CSV">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                        </button>
                         <button class="icon-btn" id="create-database" title="New Database">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         </button>
@@ -83,6 +92,7 @@
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                         </button>
                     </div>
+                    <input type="file" id="import-csv-input" accept=".csv,text/csv" style="display:none;">
                 </div>
                 <div class="sidebar-search">
                     <input type="text" id="explorer-search" placeholder="Search objects..." autocomplete="off">
@@ -112,6 +122,55 @@
                 </div>
                 <div id="samples-list" class="samples-list">
                     <div class="tree-loading">Loading samples...</div>
+                </div>
+            </div>
+
+            <!-- Roles Panel (real Postgres RBAC — reads/writes actual pg_roles) -->
+            <div id="sidebar-roles" class="sidebar-panel" style="display: none;">
+                <div class="sidebar-header">
+                    <h2>Roles</h2>
+                    <button class="icon-btn" id="refresh-roles" title="Refresh">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                    </button>
+                </div>
+                <div class="roles-scroll">
+                    <div class="roles-templates">
+                        <div class="roles-templates-label">Standard role hierarchy (Snowflake-style)</div>
+                        <p class="roles-templates-desc">Creates three real Postgres roles: <strong>ACCOUNTADMIN</strong> (CREATEDB + CREATEROLE — can manage everything), <strong>ENGINEER</strong> (a regular role you assign database access to), and <strong>ANALYST</strong> (a regular role meant to be granted read-only access only). Note: this app always connects as the Postgres superuser, so you already have full access regardless of these roles — they're for controlling <em>other</em> logins.</p>
+                        <button class="btn btn-secondary btn-sm" id="create-standard-roles">Create standard roles</button>
+                    </div>
+
+                    <div id="roles-list" class="roles-list">
+                        <div class="tree-loading">Loading roles...</div>
+                    </div>
+
+                    <div class="new-role-form">
+                        <input type="text" id="new-role-name" placeholder="role_name" autocomplete="off">
+                        <label class="role-login-toggle">
+                            <input type="checkbox" id="new-role-can-login">
+                            Can log in
+                        </label>
+                        <input type="password" id="new-role-password" placeholder="Password" autocomplete="new-password" style="display:none;">
+                        <button class="btn btn-primary btn-sm" id="create-role">Create Role</button>
+                    </div>
+
+                    <div class="db-access-form">
+                        <div class="roles-templates-label">Database-wide access</div>
+                        <p class="roles-templates-desc">Grants a role access to every current (and future) table in a database, instead of one table at a time.</p>
+                        <select id="db-access-role" class="chat-model-select"></select>
+                        <select id="db-access-database" class="chat-model-select" multiple size="4"></select>
+                        <select id="db-access-privilege" class="chat-model-select">
+                            <option value="SELECT">SELECT (read-only)</option>
+                            <option value="INSERT">INSERT</option>
+                            <option value="UPDATE">UPDATE</option>
+                            <option value="DELETE">DELETE</option>
+                            <option value="ALL">ALL (full access)</option>
+                        </select>
+                        <div class="db-access-actions">
+                            <button class="btn btn-secondary btn-sm" id="db-access-revoke">Revoke</button>
+                            <button class="btn btn-primary btn-sm" id="db-access-grant">Grant</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -169,6 +228,11 @@
                     <div class="context-selector">
                         <select id="db-selector" title="Database context">
                             <option value="learn_sql">learn_sql</option>
+                        </select>
+                    </div>
+                    <div class="context-selector">
+                        <select id="role-selector" title="Run as role — Postgres enforces this role's actual privileges, it's not just a UI label">
+                            <option value="">Full access (no role)</option>
                         </select>
                     </div>
                 </div>
@@ -270,6 +334,13 @@
             </div>
         </div>
 
+        <div class="chat-session-bar">
+            <div id="chat-session-tabs" class="chat-session-tabs"></div>
+            <button class="add-tab-btn chat-add-session" id="new-chat-tab" title="New chat">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+        </div>
+
         <div id="chat-ai-bar" class="chat-ai-bar"></div>
 
         <div id="chat-picker" class="chat-picker" style="display:none;"></div>
@@ -278,9 +349,88 @@
             <div id="chat-messages" class="chat-messages">
                 <div class="empty-state">Pick an AI above, then ask about the current database — e.g. "which table has the most rows?"</div>
             </div>
+
+            <div id="chat-skills-popover" class="chat-skills-popover" style="display:none;"></div>
+
+            <div id="chat-attachments" class="chat-attachments" style="display:none;"></div>
+
             <div class="chat-input-row">
+                <div class="chat-input-tools">
+                    <button class="icon-btn" id="chat-skills-btn" title="Skills">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                    </button>
+                    <button class="icon-btn" id="chat-attach-btn" title="Attach a file, spreadsheet, or image">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                    </button>
+                    <input type="file" id="chat-attach-input" accept=".csv,.xlsx,.xls,image/png,image/jpeg,image/webp" style="display:none;">
+                </div>
                 <textarea id="chat-input" class="chat-input" rows="2" placeholder="Ask about your data... (Enter to send)"></textarea>
                 <button class="btn btn-primary btn-sm" id="chat-send" title="Send (Enter)">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Database Details Modal -->
+    <div id="db-details-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-panel" style="width:min(480px, 100%);">
+            <div class="sidebar-header">
+                <div>
+                    <h2 id="db-details-title">Database</h2>
+                    <div class="modal-meta">Postgres doesn't keep a creation-date log — owner is the closest real signal for "who made this."</div>
+                </div>
+                <button class="icon-btn" id="close-db-details" title="Close">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="modal-body" id="db-details-body"></div>
+        </div>
+    </div>
+
+    <!-- CSV Import Modal -->
+    <div id="import-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-panel">
+            <div class="sidebar-header">
+                <div>
+                    <h2>Import CSV</h2>
+                    <div class="modal-meta" id="import-meta"></div>
+                </div>
+                <button class="icon-btn" id="close-import" title="Close">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="modal-body" id="import-body"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-sm" id="import-cancel">Cancel</button>
+                <button class="btn btn-primary btn-sm" id="import-confirm" disabled>Import</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Table/View Data Preview Modal -->
+    <div id="preview-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-panel">
+            <div class="sidebar-header">
+                <div>
+                    <h2 id="preview-title">Preview</h2>
+                    <div class="modal-meta" id="preview-meta"></div>
+                </div>
+                <button class="icon-btn" id="close-preview" title="Close">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="results-tabs preview-tabs">
+                <button class="results-tab active" data-tab="data" id="preview-tab-data">Data</button>
+                <button class="results-tab" data-tab="lineage" id="preview-tab-lineage">Definition &amp; Lineage</button>
+                <button class="results-tab" data-tab="permissions" id="preview-tab-permissions">Permissions</button>
+                <button class="results-tab" data-tab="history" id="preview-tab-history">History</button>
+            </div>
+            <div class="modal-body" id="preview-body"></div>
+            <div class="modal-body" id="preview-lineage-body" style="display:none;"></div>
+            <div class="modal-body" id="preview-permissions-body" style="display:none;"></div>
+            <div class="modal-body" id="preview-history-body" style="display:none;"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-sm" id="preview-insert">Insert into editor</button>
+                <button class="btn btn-primary btn-sm" id="preview-query">Query this table</button>
             </div>
         </div>
     </div>
@@ -294,6 +444,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/closebrackets.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/selection/active-line.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/comment/comment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
