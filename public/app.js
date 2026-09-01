@@ -12,6 +12,10 @@ let currentView = 'worksheets';
 let objectTreeData = {};
 let lastResults = null;
 let isResizing = false;
+let chatHistory = [];
+let chatPending = false;
+let aiSettings = { consented: false, provider: null, providerName: null, model: null, modelLabel: null, mode: 'plan' };
+let providersScanCache = null;
 
 // ═══════════════════════════════════════════
 // Initialization
@@ -28,6 +32,7 @@ async function bootstrapApp() {
     initNavigation();
     initResizer();
     initEventListeners();
+    initChat();
     checkConnection();
     loadDatabases();
     loadDbSelector();
@@ -930,6 +935,20 @@ function initEventListeners() {
         }
     });
 
+    // Ask AI chat
+    document.getElementById('chat-send').addEventListener('click', sendChatMessage);
+    document.getElementById('chat-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendChatMessage();
+        }
+    });
+    document.getElementById('clear-chat').addEventListener('click', () => {
+        chatHistory = [];
+        localStorage.removeItem('snowquery_chat');
+        renderChatMessages();
+    });
+
     // Save Settings
     document.getElementById('save-settings').addEventListener('click', saveSettings);
     document.getElementById('setup-database').addEventListener('click', setupLearningDatabase);
@@ -1143,6 +1162,797 @@ function showToast(message, type = 'info') {
         toast.style.animation = 'toastOut 0.3s ease forwards';
         setTimeout(() => toast.remove(), 300);
     }, 3000);
+}
+
+// ═══════════════════════════════════════════
+// Ask AI Chat
+// ═══════════════════════════════════════════
+
+const DEFAULT_CHAT_LAYOUT = {
+    mode: 'floating', // 'floating' | 'docked'
+    floating: { left: null, top: null, width: 380, height: 560 },
+    docked: { width: 380 },
+};
+
+let chatLayout = JSON.parse(JSON.stringify(DEFAULT_CHAT_LAYOUT));
+
+function initChat() {
+    const savedChat = localStorage.getItem('snowquery_chat');
+    if (savedChat) {
+        try { chatHistory = JSON.parse(savedChat); } catch (e) { chatHistory = []; }
+    }
+    const savedSettings = localStorage.getItem('snowquery_ai_settings');
+    if (savedSettings) {
+        try { aiSettings = { ...aiSettings, ...JSON.parse(savedSettings) }; } catch (e) { /* keep defaults */ }
+    }
+    const savedLayout = localStorage.getItem('snowquery_chat_layout');
+    if (savedLayout) {
+        try {
+            const parsed = JSON.parse(savedLayout);
+            chatLayout = {
+                mode: parsed.mode === 'docked' ? 'docked' : 'floating',
+                floating: { ...DEFAULT_CHAT_LAYOUT.floating, ...(parsed.floating || {}) },
+                docked: { ...DEFAULT_CHAT_LAYOUT.docked, ...(parsed.docked || {}) },
+            };
+        } catch (e) { /* keep defaults */ }
+    }
+
+    renderChatMessages();
+    renderAiBar();
+    applyChatLayout();
+
+    document.getElementById('chat-fab').addEventListener('click', toggleChatPanel);
+    document.getElementById('close-chat').addEventListener('click', closeChatPanel);
+    document.getElementById('dock-chat').addEventListener('click', toggleChatDock);
+    initChatDrag();
+    initChatResize();
+    window.addEventListener('resize', () => applyChatLayout());
+}
+
+function saveChatLayout() {
+    localStorage.setItem('snowquery_chat_layout', JSON.stringify(chatLayout));
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+function applyChatLayout() {
+    const panel = document.getElementById('chat-floating-panel');
+    const docked = chatLayout.mode === 'docked';
+
+    panel.classList.toggle('mode-docked', docked);
+    panel.classList.toggle('mode-floating', !docked);
+
+    const dockBtn = document.getElementById('dock-chat');
+    if (dockBtn) {
+        dockBtn.classList.toggle('active', docked);
+        dockBtn.title = docked ? 'Undock (float)' : 'Dock as sidebar';
+    }
+
+    if (docked) {
+        const width = clamp(chatLayout.docked.width, 300, Math.min(720, window.innerWidth - 80));
+        panel.style.left = '';
+        panel.style.right = '0px';
+        panel.style.top = '0px';
+        panel.style.bottom = '0px';
+        panel.style.width = width + 'px';
+        panel.style.height = '';
+    } else {
+        const width = clamp(chatLayout.floating.width, 300, Math.min(900, window.innerWidth - 40));
+        const height = clamp(chatLayout.floating.height, 320, Math.min(900, window.innerHeight - 40));
+        const defaultLeft = window.innerWidth - width - 24;
+        const defaultTop = window.innerHeight - height - 92;
+        const left = clamp(chatLayout.floating.left ?? defaultLeft, 8, window.innerWidth - 120);
+        const top = clamp(chatLayout.floating.top ?? defaultTop, 8, window.innerHeight - 60);
+
+        panel.style.right = '';
+        panel.style.bottom = '';
+        panel.style.left = left + 'px';
+        panel.style.top = top + 'px';
+        panel.style.width = width + 'px';
+        panel.style.height = height + 'px';
+    }
+}
+
+function toggleChatDock() {
+    chatLayout.mode = chatLayout.mode === 'docked' ? 'floating' : 'docked';
+    applyChatLayout();
+    saveChatLayout();
+}
+
+function initChatDrag() {
+    const handle = document.getElementById('chat-drag-handle');
+    const panel = document.getElementById('chat-floating-panel');
+
+    handle.addEventListener('mousedown', (e) => {
+        if (chatLayout.mode !== 'floating') return;
+        if (e.target.closest('button')) return;
+        e.preventDefault();
+
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startLeft = panel.offsetLeft;
+        const startTop = panel.offsetTop;
+
+        function onMove(ev) {
+            chatLayout.floating.left = clamp(startLeft + (ev.clientX - startX), 8, window.innerWidth - 120);
+            chatLayout.floating.top = clamp(startTop + (ev.clientY - startY), 8, window.innerHeight - 60);
+            applyChatLayout();
+        }
+        function onUp() {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            saveChatLayout();
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
+}
+
+function initChatResize() {
+    const grip = document.getElementById('chat-resize-grip');
+    const panel = document.getElementById('chat-floating-panel');
+
+    grip.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startWidth = panel.offsetWidth;
+        const startHeight = panel.offsetHeight;
+        const mode = chatLayout.mode;
+
+        function onMove(ev) {
+            if (mode === 'docked') {
+                const dx = startX - ev.clientX; // grip is on the left edge
+                chatLayout.docked.width = clamp(startWidth + dx, 300, Math.min(720, window.innerWidth - 80));
+            } else {
+                const dw = ev.clientX - startX;
+                const dh = ev.clientY - startY;
+                chatLayout.floating.width = clamp(startWidth + dw, 300, Math.min(900, window.innerWidth - 40));
+                chatLayout.floating.height = clamp(startHeight + dh, 320, Math.min(900, window.innerHeight - 40));
+            }
+            applyChatLayout();
+        }
+        function onUp() {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            saveChatLayout();
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
+}
+
+function toggleChatPanel() {
+    const panel = document.getElementById('chat-floating-panel');
+    const isOpen = panel.classList.toggle('open');
+    document.getElementById('chat-fab').classList.toggle('active', isOpen);
+    if (isOpen) {
+        applyChatLayout();
+        setTimeout(() => document.getElementById('chat-input')?.focus(), 200);
+    }
+}
+
+function closeChatPanel() {
+    document.getElementById('chat-floating-panel').classList.remove('open');
+    document.getElementById('chat-fab').classList.remove('active');
+}
+
+function saveChatHistory() {
+    localStorage.setItem('snowquery_chat', JSON.stringify(chatHistory));
+}
+
+function saveAiSettings() {
+    localStorage.setItem('snowquery_ai_settings', JSON.stringify(aiSettings));
+}
+
+// ── AI bar: provider badge + mode switch ──
+
+const CHAT_MODES = [
+    { id: 'plan', label: 'Plan', title: 'Proposes SQL only — you review and run it yourself' },
+    { id: 'auto', label: 'Auto', title: 'Runs any SQL immediately, including changes' },
+    { id: 'ask', label: 'Ask', title: 'Runs reads immediately, asks you to approve changes' },
+];
+
+function renderAiBar() {
+    const bar = document.getElementById('chat-ai-bar');
+    if (!bar) return;
+    bar.innerHTML = '';
+
+    const providerRow = document.createElement('div');
+    providerRow.className = 'chat-ai-provider-row';
+
+    const badge = document.createElement('div');
+    if (aiSettings.provider) {
+        badge.className = 'chat-ai-badge';
+        badge.innerHTML = `<strong>${escapeHtml(aiSettings.providerName)}</strong>${aiSettings.modelLabel ? ` &middot; ${escapeHtml(aiSettings.modelLabel)}` : ''}`;
+    } else {
+        badge.className = 'chat-ai-badge muted';
+        badge.textContent = 'No AI selected';
+    }
+    providerRow.appendChild(badge);
+
+    const changeBtn = document.createElement('button');
+    changeBtn.className = 'btn btn-secondary btn-sm';
+    changeBtn.textContent = aiSettings.provider ? 'Change' : 'Select AI';
+    changeBtn.addEventListener('click', openPicker);
+    providerRow.appendChild(changeBtn);
+
+    bar.appendChild(providerRow);
+
+    const modeRow = document.createElement('div');
+    modeRow.className = 'chat-mode-row';
+    CHAT_MODES.forEach(m => {
+        const btn = document.createElement('button');
+        btn.className = `chat-mode-btn${aiSettings.mode === m.id ? ' active' : ''}`;
+        btn.textContent = m.label;
+        btn.title = m.title;
+        btn.addEventListener('click', () => {
+            aiSettings.mode = m.id;
+            saveAiSettings();
+            renderAiBar();
+        });
+        modeRow.appendChild(btn);
+    });
+    bar.appendChild(modeRow);
+}
+
+// ── Picker: consent card + provider/model selection ──
+
+function openPicker() {
+    document.getElementById('chat-main').style.display = 'none';
+    document.getElementById('chat-picker').style.display = 'flex';
+
+    if (!aiSettings.consented) {
+        renderConsentCard();
+    } else {
+        renderProviderListLoading();
+        scanAiProviders();
+    }
+}
+
+function closePicker() {
+    document.getElementById('chat-picker').style.display = 'none';
+    document.getElementById('chat-main').style.display = 'flex';
+}
+
+function renderConsentCard() {
+    const picker = document.getElementById('chat-picker');
+    picker.innerHTML = '';
+
+    const card = document.createElement('div');
+    card.className = 'chat-consent-card';
+    card.innerHTML = `
+        <h3>Scan for installed AI tools?</h3>
+        <p>SnowQuery can check whether common AI command-line tools (Claude Code, Codex, Ollama, Gemini CLI, Aider, llm) are installed on this computer, and list any local Ollama models. This only checks what's <strong>installed locally</strong> — nothing is read, sent anywhere, or run beyond a quick version check.</p>
+    `;
+
+    const actions = document.createElement('div');
+    actions.className = 'chat-consent-actions';
+
+    const allowBtn = document.createElement('button');
+    allowBtn.className = 'btn btn-primary btn-sm';
+    allowBtn.textContent = 'Allow scan';
+    allowBtn.addEventListener('click', () => {
+        aiSettings.consented = true;
+        saveAiSettings();
+        renderProviderListLoading();
+        scanAiProviders();
+    });
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-secondary btn-sm';
+    cancelBtn.textContent = 'Not now';
+    cancelBtn.addEventListener('click', closePicker);
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(allowBtn);
+    card.appendChild(actions);
+    picker.appendChild(card);
+}
+
+function renderProviderListLoading() {
+    document.getElementById('chat-picker').innerHTML = '<div class="tree-loading">Scanning for AI tools installed on this computer…</div>';
+}
+
+async function scanAiProviders() {
+    try {
+        const res = await fetch(`${API_BASE}/api/ai-providers/scan`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Scan failed');
+        providersScanCache = data.providers || [];
+        renderProviderList(providersScanCache);
+    } catch (err) {
+        document.getElementById('chat-picker').innerHTML = `<div class="chat-consent-card"><p>Scan failed: ${escapeHtml(err.message)}</p></div>`;
+    }
+}
+
+function renderProviderList(providers) {
+    const picker = document.getElementById('chat-picker');
+    picker.innerHTML = '';
+
+    const header = document.createElement('div');
+    header.className = 'chat-picker-header';
+    const heading = document.createElement('h3');
+    heading.textContent = 'Choose an AI';
+    header.appendChild(heading);
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn btn-secondary btn-sm';
+    closeBtn.textContent = aiSettings.provider ? 'Cancel' : 'Close';
+    closeBtn.addEventListener('click', closePicker);
+    header.appendChild(closeBtn);
+    picker.appendChild(header);
+
+    const list = document.createElement('div');
+    list.className = 'chat-provider-list';
+
+    providers.forEach(p => {
+        const card = document.createElement('div');
+        card.className = `chat-provider-card${!p.detected ? ' unavailable' : ''}${p.planned ? ' planned' : ''}`;
+
+        const title = document.createElement('div');
+        title.className = 'chat-provider-title';
+        title.innerHTML = `<strong>${escapeHtml(p.name)}</strong>`;
+        card.appendChild(title);
+
+        const status = document.createElement('div');
+        status.className = 'chat-provider-status';
+        if (!p.detected) {
+            status.textContent = 'Not installed on this computer';
+        } else if (p.planned) {
+            status.textContent = `Detected (${p.version || 'installed'}) — integration coming soon`;
+        } else {
+            status.textContent = p.version || 'Detected';
+        }
+        card.appendChild(status);
+
+        if (p.detected && !p.planned) {
+            if (p.modelListSupported && p.models && p.models.length) {
+                const select = document.createElement('select');
+                select.className = 'chat-model-select';
+                p.models.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.id;
+                    opt.textContent = m.label;
+                    select.appendChild(opt);
+                });
+                card.appendChild(select);
+
+                const useBtn = document.createElement('button');
+                useBtn.className = 'btn btn-primary btn-sm';
+                useBtn.textContent = 'Use this';
+                useBtn.addEventListener('click', () => {
+                    const chosen = p.models.find(m => m.id === select.value);
+                    selectProvider(p, chosen.id, chosen.label);
+                });
+                card.appendChild(useBtn);
+            } else if (p.modelListSupported) {
+                const note = document.createElement('div');
+                note.className = 'chat-provider-status';
+                note.textContent = 'No local models found';
+                card.appendChild(note);
+            } else {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'chat-model-input';
+                input.placeholder = 'Model (optional — blank uses the default)';
+                card.appendChild(input);
+
+                const useBtn = document.createElement('button');
+                useBtn.className = 'btn btn-primary btn-sm';
+                useBtn.textContent = 'Use this';
+                useBtn.addEventListener('click', () => {
+                    const val = input.value.trim();
+                    selectProvider(p, val || null, val || 'default');
+                });
+                card.appendChild(useBtn);
+            }
+        }
+
+        list.appendChild(card);
+    });
+
+    picker.appendChild(list);
+
+    const footer = document.createElement('div');
+    footer.className = 'chat-picker-footer';
+    const rescanBtn = document.createElement('button');
+    rescanBtn.className = 'btn btn-secondary btn-sm';
+    rescanBtn.textContent = 'Rescan';
+    rescanBtn.addEventListener('click', () => { renderProviderListLoading(); scanAiProviders(); });
+    footer.appendChild(rescanBtn);
+    picker.appendChild(footer);
+}
+
+function selectProvider(p, modelId, modelLabel) {
+    aiSettings.provider = p.id;
+    aiSettings.providerName = p.name;
+    aiSettings.model = modelId;
+    aiSettings.modelLabel = modelLabel;
+    saveAiSettings();
+    renderAiBar();
+    closePicker();
+    showToast(`Using ${p.name}${modelLabel ? ' (' + modelLabel + ')' : ''}`, 'success');
+}
+
+// ── Messages ──
+
+function renderChatMessages() {
+    const container = document.getElementById('chat-messages');
+    if (!container) return;
+
+    if (chatHistory.length === 0) {
+        container.innerHTML = '<div class="empty-state">Pick an AI above, then ask about the current database — e.g. "which table has the most rows?"</div>';
+        return;
+    }
+
+    container.innerHTML = '';
+    chatHistory.forEach((msg, idx) => {
+        container.appendChild(buildChatBubble(msg, idx));
+    });
+    container.scrollTop = container.scrollHeight;
+}
+
+function buildChatBubble(msg, idx) {
+    const bubble = document.createElement('div');
+    bubble.className = `chat-bubble ${msg.role}${msg.error ? ' error' : ''}`;
+
+    const textEl = document.createElement('div');
+    textEl.textContent = msg.displayText !== undefined ? msg.displayText : msg.content;
+    bubble.appendChild(textEl);
+
+    if (msg.sql && !msg.awaitingApproval) {
+        bubble.appendChild(buildSqlBlock(msg.sql));
+    }
+
+    if (msg.executedQueries && msg.executedQueries.length) {
+        msg.executedQueries.forEach(q => bubble.appendChild(buildExecutedQueryBlock(q)));
+    }
+
+    if (msg.awaitingApproval || (msg.resolved && msg.sqlForApproval)) {
+        bubble.appendChild(buildApprovalBlock(msg, idx));
+    }
+
+    return bubble;
+}
+
+function buildSqlBlock(sql) {
+    const block = document.createElement('div');
+    block.className = 'chat-sql-block';
+
+    const pre = document.createElement('pre');
+    pre.textContent = sql;
+    block.appendChild(pre);
+
+    const actions = document.createElement('div');
+    actions.className = 'chat-sql-actions';
+    const insertBtn = document.createElement('button');
+    insertBtn.className = 'btn btn-secondary btn-sm';
+    insertBtn.textContent = 'Insert & Run';
+    insertBtn.addEventListener('click', () => insertAndRunSql(sql));
+    actions.appendChild(insertBtn);
+    block.appendChild(actions);
+
+    return block;
+}
+
+function buildExecutedQueryBlock(q) {
+    const block = document.createElement('div');
+    block.className = 'chat-sql-block executed';
+
+    const pre = document.createElement('pre');
+    pre.textContent = q.sql;
+    block.appendChild(pre);
+
+    const summary = document.createElement('div');
+    summary.className = 'chat-exec-summary';
+    if (q.error) {
+        summary.classList.add('error');
+        summary.textContent = `Error: ${q.error}`;
+    } else if (q.rows && q.rows.length) {
+        summary.textContent = `${q.rowCount} row(s)`;
+    } else {
+        summary.textContent = `${q.command} executed${q.rowCount !== null && q.rowCount !== undefined ? ` — ${q.rowCount} row(s) affected` : ''}`;
+    }
+    block.appendChild(summary);
+
+    if (q.rows && q.rows.length) {
+        block.appendChild(buildMiniResultTable(q.columns, q.rows));
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'chat-sql-actions';
+    const openBtn = document.createElement('button');
+    openBtn.className = 'btn btn-secondary btn-sm';
+    openBtn.textContent = 'Open in worksheet';
+    openBtn.addEventListener('click', () => {
+        switchView('worksheets');
+        editor.setValue(q.sql);
+        saveCurrentWorksheet();
+    });
+    actions.appendChild(openBtn);
+    block.appendChild(actions);
+
+    return block;
+}
+
+function buildMiniResultTable(columns, rows) {
+    const wrap = document.createElement('div');
+    wrap.className = 'chat-mini-table-wrap';
+
+    const cols = columns && columns.length ? columns : Object.keys(rows[0] || {});
+    const table = document.createElement('table');
+    table.className = 'chat-mini-table';
+
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    cols.forEach(c => {
+        const th = document.createElement('th');
+        th.textContent = c;
+        headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    rows.slice(0, 5).forEach(row => {
+        const tr = document.createElement('tr');
+        cols.forEach(c => {
+            const td = document.createElement('td');
+            const val = row[c];
+            td.textContent = val === null || val === undefined ? 'NULL' : String(val);
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+
+    if (rows.length > 5) {
+        const more = document.createElement('div');
+        more.className = 'chat-exec-summary';
+        more.textContent = `...and ${rows.length - 5} more row(s)`;
+        wrap.appendChild(more);
+    }
+
+    return wrap;
+}
+
+function buildApprovalBlock(msg, idx) {
+    const block = document.createElement('div');
+    block.className = 'chat-sql-block approval';
+
+    const pre = document.createElement('pre');
+    pre.textContent = msg.sqlForApproval || msg.sql;
+    block.appendChild(pre);
+
+    if (msg.resolved) {
+        const resolvedEl = document.createElement('div');
+        resolvedEl.className = 'chat-exec-summary';
+        resolvedEl.textContent = msg.resolvedApproved ? 'Approved — this ran on your database.' : 'Rejected — not run.';
+        block.appendChild(resolvedEl);
+        return block;
+    }
+
+    const warn = document.createElement('div');
+    warn.className = 'chat-exec-summary warn';
+    warn.textContent = 'This changes data. Approve to run it on your database.';
+    block.appendChild(warn);
+
+    const actions = document.createElement('div');
+    actions.className = 'chat-sql-actions';
+
+    const rejectBtn = document.createElement('button');
+    rejectBtn.className = 'btn btn-secondary btn-sm';
+    rejectBtn.textContent = 'Reject';
+    rejectBtn.addEventListener('click', () => resolveApproval(idx, false));
+
+    const approveBtn = document.createElement('button');
+    approveBtn.className = 'btn btn-primary btn-sm';
+    approveBtn.textContent = 'Approve & Run';
+    approveBtn.addEventListener('click', () => resolveApproval(idx, true));
+
+    actions.appendChild(rejectBtn);
+    actions.appendChild(approveBtn);
+    block.appendChild(actions);
+
+    return block;
+}
+
+function insertAndRunSql(sql) {
+    switchView('worksheets');
+    editor.setValue(sql);
+    saveCurrentWorksheet();
+    setTimeout(() => runQuery(), 100);
+}
+
+// ── Streaming: the server sends newline-delimited JSON — {type:'status', text} events while
+// it works, then exactly one {type:'result'|'awaitingApproval'|'error'} terminal event.
+async function streamChatRequest(url, body, onStatus) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+        let errMsg = 'Request failed';
+        try { const data = await response.json(); errMsg = data.error || errMsg; } catch (e) { /* ignore */ }
+        throw new Error(errMsg);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalEvent = null;
+
+    const handleLine = (line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        let evt;
+        try { evt = JSON.parse(trimmed); } catch (e) { return; }
+        if (evt.type === 'status') {
+            if (onStatus) onStatus(evt.text);
+        } else {
+            finalEvent = evt;
+        }
+    };
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf('\n')) >= 0) {
+            handleLine(buffer.slice(0, idx));
+            buffer = buffer.slice(idx + 1);
+        }
+    }
+    handleLine(buffer);
+
+    if (!finalEvent) throw new Error('No response received from server');
+    if (finalEvent.type === 'error') throw new Error(finalEvent.error || 'Request failed');
+    return finalEvent;
+}
+
+function buildPendingBubble(text) {
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble assistant pending';
+
+    const wrap = document.createElement('div');
+    wrap.className = 'chat-thinking';
+
+    const spinner = document.createElement('span');
+    spinner.className = 'chat-spinner';
+    wrap.appendChild(spinner);
+
+    const label = document.createElement('span');
+    label.className = 'chat-thinking-text';
+    label.textContent = text;
+    wrap.appendChild(label);
+
+    bubble.appendChild(wrap);
+    return bubble;
+}
+
+function updatePendingBubble(bubble, text) {
+    const label = bubble.querySelector('.chat-thinking-text');
+    if (label) label.textContent = text;
+    const container = document.getElementById('chat-messages');
+    if (container) container.scrollTop = container.scrollHeight;
+}
+
+function normalizeChatEvent(evt) {
+    return {
+        reply: evt.reply,
+        sql: evt.sql,
+        executedQueries: evt.executedQueries || [],
+        awaitingApproval: evt.type === 'awaitingApproval',
+        resumeState: evt.resumeState || null,
+    };
+}
+
+function buildAssistantEntry(data) {
+    const replyText = data.sql ? data.reply.replace(/```sql[\s\S]*?```/i, '').trim() : data.reply;
+    return {
+        role: 'assistant',
+        content: data.reply,
+        displayText: replyText || data.reply,
+        sql: data.awaitingApproval ? null : (data.sql || null),
+        executedQueries: data.executedQueries || [],
+        awaitingApproval: !!data.awaitingApproval,
+        resumeState: data.resumeState || null,
+    };
+}
+
+async function resolveApproval(idx, approved) {
+    const msg = chatHistory[idx];
+    if (!msg || msg.resolved) return;
+
+    msg.resolved = true;
+    msg.resolvedApproved = approved;
+    msg.sqlForApproval = msg.sql;
+    msg.awaitingApproval = false;
+    renderChatMessages();
+    saveChatHistory();
+
+    chatPending = true;
+    const container = document.getElementById('chat-messages');
+    const pendingBubble = buildPendingBubble(approved ? 'Running the query…' : 'Noting your answer…');
+    container.appendChild(pendingBubble);
+    container.scrollTop = container.scrollHeight;
+
+    try {
+        const finalEvent = await streamChatRequest(
+            `${API_BASE}/api/chat/resume`,
+            { resumeState: msg.resumeState, approved },
+            (text) => updatePendingBubble(pendingBubble, text)
+        );
+        chatHistory.push(buildAssistantEntry(normalizeChatEvent(finalEvent)));
+    } catch (err) {
+        chatHistory.push({ role: 'assistant', content: err.message, error: true });
+    } finally {
+        chatPending = false;
+        renderChatMessages();
+        saveChatHistory();
+    }
+}
+
+async function sendChatMessage() {
+    if (chatPending) return;
+
+    if (!aiSettings.provider) {
+        showToast('Pick an AI provider first', 'error');
+        openPicker();
+        return;
+    }
+
+    const input = document.getElementById('chat-input');
+    const message = input.value.trim();
+    if (!message) return;
+
+    input.value = '';
+    chatHistory.push({ role: 'user', content: message });
+    renderChatMessages();
+    saveChatHistory();
+
+    chatPending = true;
+    const container = document.getElementById('chat-messages');
+    const pendingBubble = buildPendingBubble('Reading the database schema…');
+    container.appendChild(pendingBubble);
+    container.scrollTop = container.scrollHeight;
+
+    const sendBtn = document.getElementById('chat-send');
+    sendBtn.disabled = true;
+
+    try {
+        const database = document.getElementById('db-selector').value;
+        const historyForApi = chatHistory
+            .slice(0, -1)
+            .slice(-6)
+            .map(m => ({ role: m.role, content: m.content }));
+
+        const finalEvent = await streamChatRequest(
+            `${API_BASE}/api/chat`,
+            {
+                message, database, history: historyForApi,
+                provider: aiSettings.provider, model: aiSettings.model, mode: aiSettings.mode,
+            },
+            (text) => updatePendingBubble(pendingBubble, text)
+        );
+
+        chatHistory.push(buildAssistantEntry(normalizeChatEvent(finalEvent)));
+    } catch (err) {
+        chatHistory.push({ role: 'assistant', content: err.message, error: true });
+    } finally {
+        chatPending = false;
+        sendBtn.disabled = false;
+        renderChatMessages();
+        saveChatHistory();
+    }
 }
 
 // ═══════════════════════════════════════════

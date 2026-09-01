@@ -9,8 +9,9 @@
     "check": "node --check server.js && node --check public/app.js"
   },
   "dependencies": {
+    "cors": "^2.8.5",
+    "cross-spawn": "^7.0.6",
     "express": "^4.21.0",
-    "pg": "^8.13.0",
-    "cors": "^2.8.5"
+    "pg": "^8.13.0"
   }
 }
