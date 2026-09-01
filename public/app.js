@@ -2609,26 +2609,55 @@ function makeChatSession(name, overrides) {
     };
 }
 
-function initChat() {
-    const savedSessions = localStorage.getItem('snowquery_chat_sessions');
-    if (savedSessions) {
-        try { chatSessions = JSON.parse(savedSessions); } catch (e) { chatSessions = []; }
+async function initChat() {
+    // Chat history now lives in Postgres itself (see /api/chat-sessions) rather than browser
+    // localStorage, so it follows the database instead of being stuck on one machine/browser.
+    // localStorage is only ever touched here once, to migrate anything left over from before
+    // this change — after that it's untouched.
+    let loadedFromDb = [];
+    try {
+        const res = await fetch(`${API_BASE}/api/chat-sessions`);
+        if (res.ok) loadedFromDb = await res.json();
+    } catch (e) {
+        // Server not reachable yet at boot — fall through to an empty/local state below.
     }
-    if (!Array.isArray(chatSessions) || chatSessions.length === 0) {
-        // Migrate a pre-multi-tab single history/settings, if any, into the first session.
-        let legacyHistory = [];
-        const legacy = localStorage.getItem('snowquery_chat');
-        if (legacy) {
-            try { legacyHistory = JSON.parse(legacy); } catch (e) { /* ignore */ }
+
+    if (Array.isArray(loadedFromDb) && loadedFromDb.length > 0) {
+        chatSessions = loadedFromDb;
+    } else {
+        // Nothing in the database yet — migrate whatever's in localStorage (multi-tab format,
+        // or the older pre-multi-tab single history) so a prior session's chats aren't lost.
+        let legacySessions = null;
+        const savedSessions = localStorage.getItem('snowquery_chat_sessions');
+        if (savedSessions) {
+            try { legacySessions = JSON.parse(savedSessions); } catch (e) { /* ignore */ }
         }
-        let legacySettings = {};
-        const savedSettings = localStorage.getItem('snowquery_ai_settings');
-        if (savedSettings) {
-            try { legacySettings = JSON.parse(savedSettings); } catch (e) { /* ignore */ }
+
+        if (Array.isArray(legacySessions) && legacySessions.length > 0) {
+            chatSessions = legacySessions;
+        } else {
+            let legacyHistory = [];
+            const legacy = localStorage.getItem('snowquery_chat');
+            if (legacy) {
+                try { legacyHistory = JSON.parse(legacy); } catch (e) { /* ignore */ }
+            }
+            let legacySettings = {};
+            const savedSettings = localStorage.getItem('snowquery_ai_settings');
+            if (savedSettings) {
+                try { legacySettings = JSON.parse(savedSettings); } catch (e) { /* ignore */ }
+            }
+            chatSessions = [makeChatSession('Chat 1', { history: legacyHistory, ...legacySettings })];
+            if (legacySettings.consented) aiSettings.consented = true;
         }
-        chatSessions = [makeChatSession('Chat 1', { history: legacyHistory, ...legacySettings })];
-        if (legacySettings.consented) aiSettings.consented = true;
+
+        // Push the migrated data into the database and stop relying on localStorage for it.
+        if (chatSessions.some(s => s.history && s.history.length > 0)) {
+            saveChatHistory();
+        }
+        localStorage.removeItem('snowquery_chat_sessions');
+        localStorage.removeItem('snowquery_chat');
     }
+
     // A request that was in-flight when the page was last closed/reloaded is definitely dead now.
     chatSessions.forEach(s => { s.pending = false; s.pendingStatusText = ''; });
 
@@ -2898,8 +2927,31 @@ function closeChatPanel() {
     document.getElementById('chat-fab').hidden = false;
 }
 
+// Fire-and-forget by design (matches how the old localStorage.setItem call sites never
+// awaited either) — a full replace-sync of chatSessions into Postgres. Saves are strictly
+// serialized (never more than one PUT in flight): two rapid calls — e.g. addChatSession()
+// immediately followed by a rename — could otherwise race and have the *first* request's
+// snapshot land after the second's, silently reverting the rename server-side even though the
+// in-memory state was already correct.
+let chatHistorySaveChain = Promise.resolve();
+let chatHistorySavePending = false;
+
 function saveChatHistory() {
-    localStorage.setItem('snowquery_chat_sessions', JSON.stringify(chatSessions));
+    if (chatHistorySavePending) return; // a follow-up save is already queued and will pick up the latest state
+    chatHistorySavePending = true;
+    chatHistorySaveChain = chatHistorySaveChain.then(async () => {
+        chatHistorySavePending = false;
+        try {
+            await fetch(`${API_BASE}/api/chat-sessions`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessions: chatSessions }),
+            });
+        } catch (e) {
+            // Best-effort — a transient failure here just means the in-memory state (still
+            // correct for this tab right now) hasn't been written back to the database yet.
+        }
+    });
 }
 
 function saveAiSettings() {

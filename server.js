@@ -133,6 +133,117 @@ app.use(express.static(path.join(__dirname, 'public')));
 // PostgreSQL connection pool — default config
 let pool = createPool();
 
+// ── Ask AI chat history — persisted in Postgres itself (the 'postgres' database, since it's
+// the one database that's always present, unlike user databases which get dropped/recreated
+// often) rather than browser localStorage, so it's available from any machine that points at
+// this same Postgres instance instead of being stuck in one browser profile.
+
+async function ensureChatSchema() {
+    const adminPool = createPool({ database: 'postgres' }, { max: 2, idleTimeoutMillis: 5000, connectionTimeoutMillis: 5000 });
+    try {
+        await adminPool.query(`CREATE SCHEMA IF NOT EXISTS snowquery_app`);
+        await adminPool.query(`
+            CREATE TABLE IF NOT EXISTS snowquery_app.chat_sessions (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                provider TEXT,
+                provider_name TEXT,
+                model TEXT,
+                model_label TEXT,
+                mode TEXT NOT NULL DEFAULT 'plan',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        `);
+        await adminPool.query(`
+            CREATE TABLE IF NOT EXISTS snowquery_app.chat_messages (
+                id BIGSERIAL PRIMARY KEY,
+                session_id TEXT NOT NULL REFERENCES snowquery_app.chat_sessions(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL,
+                message JSONB NOT NULL
+            )
+        `);
+    } finally {
+        await adminPool.end();
+    }
+}
+ensureChatSchema().catch(err => console.error('Failed to set up chat history tables:', err.message));
+
+app.get('/api/chat-sessions', async (req, res) => {
+    try {
+        const adminPool = createPool({ database: 'postgres' }, { max: 2, idleTimeoutMillis: 5000, connectionTimeoutMillis: 5000 });
+        const sessionsResult = await adminPool.query(`
+            SELECT id, name, provider, provider_name AS "providerName", model, model_label AS "modelLabel", mode
+            FROM snowquery_app.chat_sessions
+            ORDER BY sort_order, updated_at
+        `);
+        const messagesResult = await adminPool.query(`
+            SELECT session_id, message
+            FROM snowquery_app.chat_messages
+            ORDER BY session_id, position
+        `);
+        await adminPool.end();
+
+        const historyBySession = {};
+        messagesResult.rows.forEach(r => {
+            if (!historyBySession[r.session_id]) historyBySession[r.session_id] = [];
+            historyBySession[r.session_id].push(r.message);
+        });
+
+        const sessions = sessionsResult.rows.map(s => ({
+            ...s,
+            history: historyBySession[s.id] || [],
+        }));
+        res.json(sessions);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Full-replace sync: the client sends its whole in-memory session list (it's already the
+// source of truth during a session, same as the old localStorage design) and this swaps the
+// stored state to match in one transaction. Simple and correct; a personal chat history table
+// realistically never grows large enough for this to be a real cost.
+app.put('/api/chat-sessions', async (req, res) => {
+    const { sessions } = req.body;
+    if (!Array.isArray(sessions)) {
+        return res.status(400).json({ error: 'sessions must be an array' });
+    }
+
+    const adminPool = createPool({ database: 'postgres' }, { max: 2, idleTimeoutMillis: 10000, connectionTimeoutMillis: 5000 });
+    const client = await adminPool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query('DELETE FROM snowquery_app.chat_sessions');
+
+        for (let i = 0; i < sessions.length; i++) {
+            const s = sessions[i];
+            if (!s || !s.id) continue;
+            await client.query(`
+                INSERT INTO snowquery_app.chat_sessions (id, name, provider, provider_name, model, model_label, mode, sort_order)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `, [s.id, s.name || 'Chat', s.provider || null, s.providerName || null, s.model || null, s.modelLabel || null, s.mode || 'plan', i]);
+
+            const history = Array.isArray(s.history) ? s.history : [];
+            for (let j = 0; j < history.length; j++) {
+                await client.query(`
+                    INSERT INTO snowquery_app.chat_messages (session_id, position, message)
+                    VALUES ($1, $2, $3::jsonb)
+                `, [s.id, j, JSON.stringify(history[j])]);
+            }
+        }
+
+        await client.query('COMMIT');
+        res.json({ success: true });
+    } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+        await adminPool.end();
+    }
+});
+
 app.get('/api/config', (req, res) => {
     res.json(getPublicDbConfig());
 });
